@@ -1,0 +1,10 @@
+[package]
+name = "visualizer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpal = "0.16.0"
+rustfft = "6.4.0"
+owo-colors = "4.2.2"
+apodize = "1.0.0"
