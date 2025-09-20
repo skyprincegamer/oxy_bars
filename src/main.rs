@@ -10,25 +10,23 @@ fn clear_screen() {
     print!("\x1B[2J\x1B[1;1H");
 }
 
-const SAMPLE_RATE: f32 = 44_100.0;
+
 const FFT_SIZE: usize = 2048;
-const ALPHA: f32 = 0.2;
-const MAX_MAGNITUDE: f32 = 50.0;
+const ALPHA: f32 = 0.05;
+const MAX_MAGNITUDE: f32 = 10.0;
 
 const NUM_BARS: usize = 60;
-const TERM_WIDTH: usize = 200;
+const TERM_WIDTH: usize = 312;
 
 const NOISE_PROFILE_TIME: f32 = 3.0;
-
-const DELTA_F: f32 = SAMPLE_RATE / FFT_SIZE as f32;
 const F_MIN: f32 = 100.0;
-const F_MAX: f32 = 2000.0;
+const F_MAX: f32 = 10000.0;
 
-const SKIP_BIN_INDEX: usize = (F_MIN / DELTA_F) as usize;
-const TAKE_BIN_INDEX: usize = ((F_MAX / DELTA_F) as usize) - SKIP_BIN_INDEX;
+
 
 fn print_horizontal_spectrum(magnitudes: &[f32], mut num_bars: usize, term_width: usize) {
     num_bars = num_bars *2;
+
     clear_screen();
 
     let first_nonzero = magnitudes.iter().position(|&x| x > 0.0).unwrap_or(0);
@@ -74,7 +72,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = cpal::default_host();
     let device = host.default_input_device().expect("No input device available");
     let config = device.default_input_config()?;
+    let sample_rate: f32 = config.sample_rate().0 as f32;
+    let delta_f: f32 = sample_rate / FFT_SIZE as f32;
 
+
+    let skip_bin_index: usize = (F_MIN / delta_f) as usize;
+    let take_bin_index: usize = ((F_MAX / delta_f) as usize) - skip_bin_index;
     println!("Input device: {}", device.name()?);
     println!("Default input config: {:?}", config);
     println!("Profiling noise for {} seconds...", NOISE_PROFILE_TIME);
@@ -86,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut profiling = true;
     let mut profiled_frames = 0usize;
-    let required_frames = (SAMPLE_RATE as usize * NOISE_PROFILE_TIME as usize) / FFT_SIZE;
+    let required_frames = (sample_rate as usize * NOISE_PROFILE_TIME as usize) / FFT_SIZE;
 
     let hann_win: Vec<f64> = hanning_iter(FFT_SIZE).collect();
 
@@ -110,8 +113,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fft.process(&mut input);
                 let mags: Vec<f32> = input
                     .iter()
-                    .skip(SKIP_BIN_INDEX)
-                    .take(TAKE_BIN_INDEX)
+                    .skip(skip_bin_index)
+                    .take(take_bin_index)
                     .map(|c| c.norm())
                     .collect();
 
