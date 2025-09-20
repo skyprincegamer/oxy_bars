@@ -18,8 +18,14 @@ const MAX_MAGNITUDE: f32 = 50.0;
 const NUM_BARS: usize = 60;
 const TERM_WIDTH: usize = 200;
 
-const NOISE_PROFILE_TIME: f32 = 3.0; // seconds to capture noise
-const NOISE_ALPHA: f32 = 0.05;       // learning rate for noise profile
+const NOISE_PROFILE_TIME: f32 = 3.0;
+
+const DELTA_F: f32 = SAMPLE_RATE / FFT_SIZE as f32;
+const F_MIN: f32 = 100.0;
+const F_MAX: f32 = 2000.0;
+
+const SKIP_BIN_INDEX: usize = (F_MIN / DELTA_F) as usize;
+const TAKE_BIN_INDEX: usize = ((F_MAX / DELTA_F) as usize) - SKIP_BIN_INDEX;
 
 fn print_horizontal_spectrum(magnitudes: &[f32], mut num_bars: usize, term_width: usize) {
     clear_screen();
@@ -99,12 +105,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fft.process(&mut input);
                 let mags: Vec<f32> = input
                     .iter()
-                    .take(FFT_SIZE / 2)
+                    .skip(SKIP_BIN_INDEX)
+                    .take(TAKE_BIN_INDEX)
                     .map(|c| c.norm())
                     .collect();
 
                 if profiling {
-                    // Build noise profile directly without smoothing
                     for (i, &mag) in mags.iter().enumerate() {
                         noise_profile[i] = mag.max(noise_profile[i]);
                     }
@@ -115,7 +121,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         eprintln!("Noise profile complete. Starting spectrum visualization...");
                     }
                 } else {
-                    // Apply noise cancellation (keep ALPHA smoothing for display)
                     for (i, &mag) in mags.iter().enumerate() {
                         let clean_mag = (mag - noise_profile[i]).max(0.0);
                         smoothed_mags[i] = smoothed_mags[i] * (1.0 - ALPHA) + clean_mag * ALPHA;
