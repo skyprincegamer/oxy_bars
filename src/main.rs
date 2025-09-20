@@ -55,7 +55,7 @@ fn get_rgb_tuple(i: usize, color_start: ColorRgbtuple, color_end: ColorRgbtuple,
     let factor = (i as f32) / (max as f32);
     let (red_a, green_a, blue_a) = color_start;
     let (red_b, green_b, blue_b) = color_end;
-    let f = |start, end| (start as f32 + factor * ((end as f32 - start as f32).abs())) as u8;
+    let f = |start, end| (start as f32 + factor * (end as f32 - start as f32)) as u8;
     (f(red_a, red_b), f(green_a, green_b), f(blue_a, blue_b))
 }
 
