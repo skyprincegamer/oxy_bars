@@ -15,16 +15,33 @@ const FFT_SIZE: usize = 2048;
 const ALPHA: f32 = 0.05;
 const MAX_MAGNITUDE: f32 = 10.0;
 
-const NUM_BARS: usize = 60;
-const TERM_WIDTH: usize = 312;
 
 const NOISE_PROFILE_TIME: f32 = 3.0;
 const F_MIN: f32 = 100.0;
 const F_MAX: f32 = 10000.0;
 
+use terminal_size::{Width, terminal_size, Height};
+
+fn get_terminal_width() -> usize {
+    if let Some((Width(w), _)) = terminal_size() {
+        w as usize
+    } else {
+        80 // fallback if size can't be detected
+    }
+}
+
+fn get_terminal_height() -> usize {
+    if let Some((_, Height(h) )) = terminal_size() {
+        h as usize
+    }
+    else {
+        80
+    }
+}
 
 
-fn print_horizontal_spectrum(magnitudes: &[f32], mut num_bars: usize, term_width: usize) {
+fn print_horizontal_spectrum(magnitudes: &[f32]) {
+    let mut num_bars = get_terminal_height() - 5;
     num_bars = num_bars *2;
 
     clear_screen();
@@ -48,6 +65,7 @@ fn print_horizontal_spectrum(magnitudes: &[f32], mut num_bars: usize, term_width
         bars.push(avg_magnitude);
     }
 
+    let term_width = get_terminal_width();
     let scale = term_width as f32 / MAX_MAGNITUDE;
 
     for (i, &magnitude) in bars.iter().take(bars.len()/2).enumerate() {
@@ -134,7 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         smoothed_mags[i] = smoothed_mags[i] * (1.0 - ALPHA) + clean_mag * ALPHA;
                     }
 
-                    print_horizontal_spectrum(&smoothed_mags, NUM_BARS, TERM_WIDTH);
+                    print_horizontal_spectrum(&smoothed_mags);
                 }
             }
         },
