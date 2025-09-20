@@ -27,27 +27,31 @@ const F_MAX: f32 = 2000.0;
 const SKIP_BIN_INDEX: usize = (F_MIN / DELTA_F) as usize;
 const TAKE_BIN_INDEX: usize = ((F_MAX / DELTA_F) as usize) - SKIP_BIN_INDEX;
 
-fn print_horizontal_spectrum(magnitudes: &[f32], mut num_bars: usize, term_width: usize) {
+fn print_horizontal_spectrum(magnitudes: &[f32], num_bars: usize, term_width: usize) {
     clear_screen();
-    num_bars = num_bars * 2;
-    let bins_per_bar = magnitudes.len() / num_bars;
+
+    let first_nonzero = magnitudes.iter().position(|&x| x > 0.0).unwrap_or(0);
+    let last_nonzero = magnitudes.iter().rposition(|&x| x > 0.0).unwrap_or(magnitudes.len() - 1);
+
+    if last_nonzero < first_nonzero {
+        return;
+    }
+
+    let active_slice = &magnitudes[first_nonzero..=last_nonzero];
+    let len = active_slice.len();
     let mut bars: Vec<f32> = Vec::with_capacity(num_bars);
 
+    let scale_factor = len as f32 / num_bars as f32;
     for bar_index in 0..num_bars {
-        let start_bin = bar_index * bins_per_bar;
-        let end_bin = start_bin + bins_per_bar;
-        let chunk = &magnitudes[start_bin..end_bin];
-        let avg_magnitude = if !chunk.is_empty() {
-            chunk.iter().sum::<f32>() / chunk.len() as f32
-        } else {
-            0.0
-        };
+        let start_bin = (bar_index as f32 * scale_factor).round() as usize;
+        let start_bin = start_bin.min(len - 1); // clamp to prevent overflow
+        let avg_magnitude = active_slice[start_bin];
         bars.push(avg_magnitude);
     }
 
     let scale = term_width as f32 / MAX_MAGNITUDE;
 
-    for (i, &magnitude) in bars.iter().take(bars.len() / 2).enumerate() {
+    for (i, &magnitude) in bars.iter().enumerate() {
         let bar_length = (magnitude * scale) as usize;
         let (r, g, b) = get_rgb_tuple(i, (48, 33, 147), (147, 33, 143), num_bars);
         let clamped_length = bar_length.min(term_width);
