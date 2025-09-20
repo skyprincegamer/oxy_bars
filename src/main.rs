@@ -13,7 +13,6 @@ fn clear_screen() {
 const SAMPLE_RATE: f32 = 44_100.0;
 const FFT_SIZE: usize = 2048;
 const ALPHA: f32 = 0.2;
-const NOISE_SECONDS: f32 = 3.0;
 const MAX_MAGNITUDE: f32 = 50.0; // <-- Static scaling reference
 
 const NUM_BARS : usize = 60;
@@ -67,17 +66,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Press Ctrl+C to quit.\n");
 
     let mut buffer: Vec<f32> = Vec::with_capacity(FFT_SIZE);
-    let mut smoothed_mags = vec![0.0f32; FFT_SIZE / 2];
-    let mut noise_profile = vec![0.0f32; FFT_SIZE / 2];
-    let mut collected_samples = 0usize;
-    let noise_sample_count = (SAMPLE_RATE * NOISE_SECONDS) as usize;
-    let hann_win : Vec<f64> = hamming_iter(FFT_SIZE).collect();
-    let hann_win : Vec<f64> = hann_win.into_iter().rev().collect();
+    let mut smoothed_mags = vec![0.0f32; FFT_SIZE/2];
+
+    let hann_win : Vec<f64> = hanning_iter(FFT_SIZE).collect();
 
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(FFT_SIZE);
-
-    println!("Sampling background noise for {} seconds...", NOISE_SECONDS);
 
     let stream = device.build_input_stream(
         &config.into(),
@@ -87,36 +81,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             while buffer.len() >= FFT_SIZE {
                 let mut input: Vec<Complex<f32>> = buffer[..FFT_SIZE]
                     .iter()
-                    .map(|&x| Complex { re: x, im: 0.0 })
+                    .enumerate()
+                    .map(|(i, &x)| x * hann_win[i] as f32)
+                    .map(|x| Complex { re: x, im: 0.0 })
                     .collect();
                 buffer.drain(..FFT_SIZE);
 
                 fft.process(&mut input);
                 let mags: Vec<f32> = input
                     .iter()
-                    .take(FFT_SIZE / 2)
-                    .map(|c| c.norm())
-                    .enumerate()
-                    .map(|(i, v)| v * hann_win[i] as f32)
+                    .take(FFT_SIZE)
+                    .map(|c| c.norm() )
                     .collect();
 
-                if collected_samples < noise_sample_count {
-                    for (i, &mag) in mags.iter().enumerate() {
-                        noise_profile[i] += mag;
-                    }
-                    collected_samples += FFT_SIZE;
-                    if collected_samples >= noise_sample_count {
-                        for val in &mut noise_profile {
-                            *val /= (noise_sample_count / FFT_SIZE) as f32;
-                        }
-                        println!("Noise profiling complete.");
-                    }
-                    return;
-                }
 
                 for (i, &mag) in mags.iter().enumerate() {
-                    let clean_mag = (mag - noise_profile[i]).max(0.0);
-                    smoothed_mags[i] = smoothed_mags[i] * (1.0 - ALPHA) + clean_mag * ALPHA;
+                    smoothed_mags[i] = smoothed_mags[i] * (1.0 - ALPHA) + mag * ALPHA;
                 }
 
                 print_horizontal_spectrum(&smoothed_mags, NUM_BARS, TERM_WIDTH);
