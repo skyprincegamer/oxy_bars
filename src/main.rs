@@ -27,7 +27,8 @@ const F_MAX: f32 = 2000.0;
 const SKIP_BIN_INDEX: usize = (F_MIN / DELTA_F) as usize;
 const TAKE_BIN_INDEX: usize = ((F_MAX / DELTA_F) as usize) - SKIP_BIN_INDEX;
 
-fn print_horizontal_spectrum(magnitudes: &[f32], num_bars: usize, term_width: usize) {
+fn print_horizontal_spectrum(magnitudes: &[f32], mut num_bars: usize, term_width: usize) {
+    num_bars = num_bars *2;
     clear_screen();
 
     let first_nonzero = magnitudes.iter().position(|&x| x > 0.0).unwrap_or(0);
@@ -51,7 +52,7 @@ fn print_horizontal_spectrum(magnitudes: &[f32], num_bars: usize, term_width: us
 
     let scale = term_width as f32 / MAX_MAGNITUDE;
 
-    for (i, &magnitude) in bars.iter().enumerate() {
+    for (i, &magnitude) in bars.iter().take(bars.len()/2).enumerate() {
         let bar_length = (magnitude * scale) as usize;
         let (r, g, b) = get_rgb_tuple(i, (48, 33, 147), (147, 33, 143), num_bars);
         let clamped_length = bar_length.min(term_width);
