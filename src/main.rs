@@ -44,18 +44,61 @@ impl Default for Config {
     }
 }
 
+
 fn load_or_create_config(path: &str) -> Config {
     if Path::new(path).exists() {
         let content = fs::read_to_string(path).expect("Failed to read config file");
         toml::from_str(&content).expect("Invalid TOML in config file")
     } else {
         let default_config = Config::default();
-        let toml_str = toml::to_string_pretty(&default_config).unwrap();
-        fs::write(path, toml_str).expect("Failed to write default config");
+
+        // Manually create TOML with comments
+        let toml_str = format!(
+            r#"# Spectrum Analyzer Configuration
+# fft_size: Number of samples per FFT (higher = better frequency resolution, slower refresh)
+fft_size = {fft_size}
+
+# alpha: Temporal smoothing factor for magnitudes (0.0 = no smoothing, 1.0 = max smoothing)
+alpha = {alpha}
+
+# max_magnitude: Controls scaling of bar length in the terminal
+max_magnitude = {max_magnitude}
+
+# noise_profile_time: Seconds to measure ambient noise before visualization starts
+noise_profile_time = {noise_profile_time}
+
+# sigma: Spatial smoothing factor for bins
+sigma = {sigma}
+
+# f_min and f_max: Frequency range to display (Hz)
+f_min = {f_min}
+f_max = {f_max}
+
+# color_top and color_bottom: RGB tuples for gradient
+color_top = [{r1}, {g1}, {b1}]
+color_bottom = [{r2}, {g2}, {b2}]
+"#,
+            fft_size = default_config.fft_size,
+            alpha = default_config.alpha,
+            max_magnitude = default_config.max_magnitude,
+            noise_profile_time = default_config.noise_profile_time,
+            sigma = default_config.sigma,
+            f_min = default_config.f_min,
+            f_max = default_config.f_max,
+            r1 = default_config.color_top.0,
+            g1 = default_config.color_top.1,
+            b1 = default_config.color_top.2,
+            r2 = default_config.color_bottom.0,
+            g2 = default_config.color_bottom.1,
+            b2 = default_config.color_bottom.2,
+        );
+
+        fs::write(path, toml_str).expect("Failed to write default config with comments");
         println!("Created default config at {}", path);
         default_config
     }
 }
+
 
 fn get_terminal_width() -> usize {
     if let Some((Width(w), _)) = terminal_size() {
@@ -119,7 +162,7 @@ fn print_horizontal_spectrum(magnitudes: &[f32], config: &Config) {
     let term_width = get_terminal_width();
     let scale = term_width as f32 / config.max_magnitude;
     spatial_smooth_bins(&mut bars, config.sigma);
-    for (i, &magnitude) in bars.iter().take(bars.len() / 2).enumerate() {
+    for (i, &magnitude) in bars.iter().take(bars.len() / 2).enumerate().rev() {
         let bar_length = (magnitude * scale) as usize;
         let (r, g, b) = get_rgb_tuple(i, config.color_top , config.color_bottom , num_bars);
         let clamped_length = bar_length.min(term_width);
