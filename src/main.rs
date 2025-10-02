@@ -2,11 +2,12 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::io::{stdout, Write};
 use owo_colors::OwoColorize;
-use apodize::*;
+use windowfunctions;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 use toml;
 use terminal_size::{Width, terminal_size, Height};
+use windowfunctions::Symmetry::Symmetric;
 
 type ColorRgbtuple = (u8, u8, u8);
 
@@ -72,7 +73,7 @@ fn get_terminal_height() -> usize {
 }
 
 fn print_horizontal_spectrum(magnitudes: &[f32], config: &Config) {
-    let mut num_bars = (get_terminal_height() - 5).min(10);
+    let mut num_bars = (get_terminal_height() - 5).max(10);
     num_bars = num_bars * 2;
 
     clear_screen();
@@ -120,6 +121,12 @@ fn get_rgb_tuple(i: usize, color_start: ColorRgbtuple, color_end: ColorRgbtuple,
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_or_create_config("config.toml");
 
+    //SPECTRAL LEAKAGE FIX
+    let window_type = windowfunctions::WindowFunction::Bartlett;
+    let symmetry = windowfunctions::Symmetry::Symmetric;
+    let win_iter = windowfunctions::window::<f64>(config.fft_size, window_type, symmetry);
+    let hann_win: Vec<f64> = win_iter.take(config.fft_size).collect();
+
     let host = cpal::default_host();
     let device = host.default_input_device().expect("No input device available");
     let config_in = device.default_input_config()?;
@@ -145,7 +152,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut profiled_frames = 0usize;
     let required_frames = (sample_rate as usize * config.noise_profile_time as usize) / config.fft_size;
 
-    let hann_win: Vec<f64> = hanning_iter(config.fft_size).collect();
+
+
 
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(config.fft_size);

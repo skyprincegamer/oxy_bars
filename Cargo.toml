@@ -7,7 +7,7 @@ edition = "2024"
 cpal = "0.16.0"
 rustfft = "6.4.0"
 owo-colors = "4.2.2"
-apodize = "1.0.0"
+windowfunctions = "0.1.1"
 terminal_size = "0.4.3"
 toml = "0.8"
 serde = { version = "1.0.226", features = ["derive"] }
