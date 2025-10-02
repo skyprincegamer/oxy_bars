@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 use toml;
 use terminal_size::{Width, terminal_size, Height};
-use windowfunctions::Symmetry::Symmetric;
 
 type ColorRgbtuple = (u8, u8, u8);
 
@@ -21,6 +20,7 @@ struct Config {
     alpha: f32,
     max_magnitude: f32,
     noise_profile_time: f32,
+    sigma : f32,
     f_min: f32,
     f_max: f32,
     color_top : ColorRgbtuple,
@@ -36,6 +36,7 @@ impl Default for Config {
             noise_profile_time: 3.0,
             f_min: 100.0,
             f_max: 10_000.0,
+            sigma: 0.5,
             color_top : (48, 33, 147),
             color_bottom : (147, 33, 143),
 
@@ -72,6 +73,24 @@ fn get_terminal_height() -> usize {
     }
 }
 
+fn spatial_smooth_bins(bar_lengths: &mut [f32], sigma: f32) {
+    let len = bar_lengths.len();
+    if len == 0 { return;}
+
+
+    // Forward pass: smooth toward future peaks
+    bar_lengths[0] = bar_lengths[0];
+    for i in 1..len {
+        bar_lengths[i] = bar_lengths[i - 1] * (1.0 - sigma) + bar_lengths[i] * sigma;
+    }
+
+    // Backward pass: smooth toward previous peaks
+    for i in (0..len - 1).rev() {
+        bar_lengths[i] = bar_lengths[i] * (1.0 - sigma) + bar_lengths[i + 1] * sigma;
+    }
+
+
+}
 fn print_horizontal_spectrum(magnitudes: &[f32], config: &Config) {
     let mut num_bars = (get_terminal_height() - 5).max(10);
     num_bars = num_bars * 2;
@@ -99,7 +118,7 @@ fn print_horizontal_spectrum(magnitudes: &[f32], config: &Config) {
 
     let term_width = get_terminal_width();
     let scale = term_width as f32 / config.max_magnitude;
-
+    spatial_smooth_bins(&mut bars, config.sigma);
     for (i, &magnitude) in bars.iter().take(bars.len() / 2).enumerate() {
         let bar_length = (magnitude * scale) as usize;
         let (r, g, b) = get_rgb_tuple(i, config.color_top , config.color_bottom , num_bars);
@@ -195,7 +214,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let clean_mag = (mag - noise_profile[i]).max(0.0);
                         smoothed_mags[i] = smoothed_mags[i] * (1.0 - config.alpha) + clean_mag * config.alpha;
                     }
-
                     print_horizontal_spectrum(&smoothed_mags, &config);
                 }
             }
