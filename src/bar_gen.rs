@@ -1,20 +1,15 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use rustfft::{num_complex::Complex, FftPlanner};
-use std::io::{stdout, Write};
-use owo_colors::OwoColorize;
-use windowfunctions;
-use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
-use toml;
-use terminal_size::{Width, terminal_size, Height};
 use savgol_rs;
 use savgol_rs::{savgol_filter, SavGolInput};
+use serde::{Deserialize, Serialize};
+use std::{fs, ops, path::Path};
+use toml;
+use windowfunctions;
 
-type ColorRgbtuple = (u8, u8, u8);
 
-fn clear_screen() {
-    print!("\x1B[2J\x1B[1;1H");
-}
+pub type ColorRgbtuple = (u8, u8, u8);
+type ScreenSize = (f32 , f32);
+
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Config {
@@ -26,6 +21,7 @@ struct Config {
     f_max: f32,
     color_top : ColorRgbtuple,
     color_bottom : ColorRgbtuple,
+    final_color: ColorRgbtuple,
 }
 
 impl Default for Config {
@@ -39,7 +35,7 @@ impl Default for Config {
             f_max: 10_000.0,
             color_top : (48, 33, 147),
             color_bottom : (147, 33, 143),
-
+            final_color : (255, 255, 255)
         }
     }
 }
@@ -74,6 +70,7 @@ f_max = {f_max}
 # color_top and color_bottom: RGB tuples for gradient
 color_top = [{r1}, {g1}, {b1}]
 color_bottom = [{r2}, {g2}, {b2}]
+final_color = [{r3}, {g3}, {b3}]
 "#,
             fft_size = default_config.fft_size,
             alpha = default_config.alpha,
@@ -87,6 +84,9 @@ color_bottom = [{r2}, {g2}, {b2}]
             r2 = default_config.color_bottom.0,
             g2 = default_config.color_bottom.1,
             b2 = default_config.color_bottom.2,
+            r3 = default_config.final_color.0,
+            g3 = default_config.final_color.1,
+            b3 = default_config.final_color.2,
         );
 
         fs::write(path, toml_str).expect("Failed to write default config with comments");
@@ -96,37 +96,22 @@ color_bottom = [{r2}, {g2}, {b2}]
 }
 
 
-fn get_terminal_width() -> usize {
-    if let Some((Width(w), _)) = terminal_size() {
-        w as usize
-    } else {
-        80
-    }
-}
 
-fn get_terminal_height() -> usize {
-    if let Some((_, Height(h))) = terminal_size() {
-        h as usize
-    } else {
-        24
-    }
-}
 
-fn spatial_smooth_bins(bar_lengths: &Vec<f32>) -> Vec<f32> {
-    let sav = SavGolInput { data: bar_lengths, window_length: 5, poly_order: 3, derivative: 2 };
-    savgol_filter(&sav).unwrap().iter().map(|&x| x as f32).collect()
+fn spatial_smooth_bins(bar_lengths: &mut Vec<f32>) {
+    let sav = SavGolInput { data: bar_lengths, window_length: 7, poly_order: 2, derivative: 0 };
+    *bar_lengths = savgol_filter(&sav).unwrap().iter().map(|&x| x as f32).collect()
 }
-fn print_horizontal_spectrum(magnitudes: &[f32], config: &Config) {
-    let mut num_bars = (get_terminal_height() - 5).max(10);
+fn print_horizontal_spectrum(s: ScreenSize , magnitudes: &[f32], config: &Config) -> Vec<f32>{
+    let (width, height) = s;
+    let mut num_bars = width as usize;
     num_bars = num_bars * 2;
-
-    clear_screen();
 
     let first_nonzero = magnitudes.iter().position(|&x| x > 0.0).unwrap_or(0);
     let last_nonzero = magnitudes.iter().rposition(|&x| x > 0.0).unwrap_or(magnitudes.len() - 1);
 
     if last_nonzero < first_nonzero {
-        return;
+        return vec![];
     }
 
     let active_slice = &magnitudes[first_nonzero..=last_nonzero];
@@ -141,20 +126,15 @@ fn print_horizontal_spectrum(magnitudes: &[f32], config: &Config) {
         bars.push(avg_magnitude);
     }
 
-    let term_width = get_terminal_width();
-    let scale = term_width as f32 / config.max_magnitude;
-    bars = spatial_smooth_bins(&bars);
-    for (i, &magnitude) in bars.iter().take(bars.len() / 2).enumerate().rev() {
-        let bar_length = (magnitude * scale) as usize;
-        let (r, g, b) = get_rgb_tuple(i, config.color_top , config.color_bottom , num_bars);
-        let clamped_length = bar_length.min(term_width);
-        println!("{}", "█".repeat(clamped_length.max(1)).truecolor(r, g, b));
+    let scale = height /config.max_magnitude;
+    for b in bars.iter_mut(){
+        *b = *b * scale;
     }
-
-    stdout().flush().unwrap();
+    spatial_smooth_bins(&mut bars);
+    bars.into_iter().take(num_bars/2).rev().collect()
 }
 
-fn get_rgb_tuple(i: usize, color_start: ColorRgbtuple, color_end: ColorRgbtuple, max: usize) -> ColorRgbtuple {
+ pub(crate) fn get_rgb_tuple(i: usize, color_start: ColorRgbtuple, color_end: ColorRgbtuple, max: usize) -> ColorRgbtuple {
     let factor = (i as f32) / (max as f32);
     let (red_a, green_a, blue_a) = color_start;
     let (red_b, green_b, blue_b) = color_end;
@@ -162,92 +142,95 @@ fn get_rgb_tuple(i: usize, color_start: ColorRgbtuple, color_end: ColorRgbtuple,
     (f(red_a, red_b), f(green_a, green_b), f(blue_a, blue_b))
 }
 
-fn cpal_func() -> Result<(), Box<dyn std::error::Error>> {
-    let config = load_or_create_config("config.toml");
+fn get_shared_colors(len : usize , config: &Config) -> Vec<ColorRgbtuple> {
+    (0..len).map(|index| get_rgb_tuple(index , config.color_top , config.color_bottom , len)).collect()
+}
 
-    //SPECTRAL LEAKAGE FIX
-    let window_type = windowfunctions::WindowFunction::Bartlett;
-    let symmetry = windowfunctions::Symmetry::Symmetric;
-    let win_iter = windowfunctions::window::<f64>(config.fft_size, window_type, symmetry);
-    let hann_win: Vec<f64> = win_iter.take(config.fft_size).collect();
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-    let host = cpal::default_host();
-    let device = host.default_input_device().expect("No input device available");
-    let config_in = device.default_input_config()?;
-    let sample_rate: f32 = config_in.sample_rate().0 as f32;
-    let delta_f: f32 = sample_rate / config.fft_size as f32;
+pub fn start_audio_thread(shared_bars: Arc<Mutex<Arc<Vec<f32>>>>, s : Arc<Mutex<ScreenSize>>, c : Arc<Mutex<Arc<Vec<ColorRgbtuple>>>> )  {
+    thread::spawn(move || {
+        // everything in your cpal_func goes here, except the infinite park
 
-    let skip_bin_index: usize = (config.f_min / delta_f) as usize;
-    let take_bin_index: usize = ((config.f_max / delta_f) as usize) - skip_bin_index;
+        let config = load_or_create_config("config.toml");
+        let window_type = windowfunctions::WindowFunction::BlackmanNuttall;
+        let symmetry = windowfunctions::Symmetry::Symmetric;
+        let win_iter = windowfunctions::window::<f64>(config.fft_size, window_type, symmetry);
+        let hann_win: Vec<f64> = win_iter.take(config.fft_size).collect();
 
-    let color_top = config.color_top;
-    let color_bottom = config.color_bottom;
+        let host = cpal::default_host();
+        let device = host.default_input_device().expect("No input device");
+        let config_in = device.default_input_config().unwrap();
+        let sample_rate = config_in.sample_rate().0 as f32;
+        let delta_f = sample_rate / config.fft_size as f32;
+        let skip_bin_index = (config.f_min / delta_f) as usize;
+        let take_bin_index = ((config.f_max / delta_f) as usize) - skip_bin_index;
 
-    println!("Input device: {}", device.name()?);
-    println!("Default input config: {:?}", config_in);
-    println!("Profiling noise for {} seconds...", config.noise_profile_time);
-    println!("Press Ctrl+C to quit.\n");
+        let mut buffer: Vec<f32> = Vec::with_capacity(config.fft_size);
+        let mut noise_profile = vec![0.0f32; config.fft_size / 2];
+        let mut profiling = true;
+        let mut profiled_frames = 0usize;
+        let required_frames = (sample_rate as usize * config.noise_profile_time as usize) / config.fft_size;
+        let mut planner = rustfft::FftPlanner::<f32>::new();
+        let fft = planner.plan_fft_forward(config.fft_size);
 
-    let mut buffer: Vec<f32> = Vec::with_capacity(config.fft_size);
-    let mut smoothed_mags = vec![0.0f32; config.fft_size / 2];
-    let mut noise_profile = vec![0.0f32; config.fft_size / 2];
+        let stream = device.build_input_stream(
+            &config_in.into(),
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                buffer.extend_from_slice(data);
+                while buffer.len() >= config.fft_size {
+                    let mut input: Vec<rustfft::num_complex::Complex<f32>> = buffer[..config.fft_size]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &x)| x * hann_win[i] as f32)
+                        .map(|x| rustfft::num_complex::Complex { re: x, im: 0.0 })
+                        .collect();
+                    buffer.drain(..config.fft_size);
+                    fft.process(&mut input);
 
-    let mut profiling = true;
-    let mut profiled_frames = 0usize;
-    let required_frames = (sample_rate as usize * config.noise_profile_time as usize) / config.fft_size;
+                    let mags: Vec<f32> = input
+                        .iter()
+                        .skip(skip_bin_index)
+                        .take(take_bin_index)
+                        .map(|c| c.norm())
+                        .collect();
 
+                    if profiling {
+                        for (i, &mag) in mags.iter().enumerate() {
+                            noise_profile[i] = mag.max(noise_profile[i]);
+                        }
+                        profiled_frames += 1;
+                        if profiled_frames >= required_frames {
+                            profiling = false;
+                            eprintln!("Noise profiling complete.");
+                        }
+                    } else {
 
+                        let mags : Vec<f32> = mags.iter().enumerate().map(|(i , elem)| (elem - noise_profile[i]).max(0.0)).collect();
 
-
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(config.fft_size);
-
-    let stream = device.build_input_stream(
-        &config_in.into(),
-        move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            buffer.extend_from_slice(data);
-
-            while buffer.len() >= config.fft_size {
-                let mut input: Vec<Complex<f32>> = buffer[..config.fft_size]
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &x)| x * hann_win[i] as f32)
-                    .map(|x| Complex { re: x, im: 0.0 })
-                    .collect();
-                buffer.drain(..config.fft_size);
-
-                fft.process(&mut input);
-                let mags: Vec<f32> = input
-                    .iter()
-                    .skip(skip_bin_index)
-                    .take(take_bin_index)
-                    .map(|c| c.norm())
-                    .collect();
-
-                if profiling {
-                    for (i, &mag) in mags.iter().enumerate() {
-                        noise_profile[i] = mag.max(noise_profile[i]);
+                        let size = {
+                            let guard = s.lock().unwrap();
+                            *guard
+                        };
+                        let bars = print_horizontal_spectrum(size, &mags, &config);
+                        // share bars with GUI
+                        if let Ok(mut shared) = shared_bars.lock() {
+                            *shared = Arc::new(bars);
+                        }
+                        let colors = get_shared_colors(size.0 as usize, &config);
+                        if let Ok(mut shared) = c.lock() {
+                            *shared = Arc::new(colors);
+                        }
                     }
-                    profiled_frames += 1;
-
-                    if profiled_frames >= required_frames {
-                        profiling = false;
-                        eprintln!("Noise profile complete. Starting spectrum visualization...");
-                    }
-                } else {
-                    for (i, &mag) in mags.iter().enumerate() {
-                        let clean_mag = (mag - noise_profile[i]).max(0.0);
-                        smoothed_mags[i] = smoothed_mags[i] * (1.0 - config.alpha) + clean_mag * config.alpha;
-                    }
-                    print_horizontal_spectrum(&smoothed_mags, &config);
                 }
-            }
-        },
-        move |err| eprintln!("Stream error: {}", err),
-        None,
-    )?;
+            },
+            move |err| eprintln!("Stream error: {}", err),
+            None,
+        ).unwrap();
 
-    stream.play()?;
-    std::thread::park();
-    Ok(())
+        stream.play().unwrap();
+        thread::park();
+    });
 }
