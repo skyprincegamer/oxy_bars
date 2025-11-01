@@ -27,15 +27,15 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            fft_size: 512,
+            fft_size: 1024,
             alpha: 0.05,
-            max_magnitude: 10.0,
-            noise_profile_time: 3.0,
+            max_magnitude: 20.0,
+            noise_profile_time: 1.0,
             f_min: 100.0,
             f_max: 10_000.0,
             color_top : (48, 33, 147),
             color_bottom : (147, 33, 143),
-            final_color : (255, 255, 255)
+            final_color : (255, 2 ,127)
         }
     }
 }
