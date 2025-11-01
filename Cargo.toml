@@ -12,5 +12,4 @@ terminal_size = "0.4.3"
 toml = "0.8"
 serde = { version = "1.0.226", features = ["derive"] }
 savgol-rs = "0.1.0"
-
-minifb = "0.28.0"
+winit = "0.30.12"
