@@ -24,7 +24,7 @@ async fn main() {
     let value: toml::Value = toml::from_str(&content).expect("Invalid TOML");
 
     let final_color  = value.get("final_color").expect("Failed to get final_color").to_string();
-    let alpha = value.get("alpha").expect("Failed to get alpha").to_string().parse::<f32>().unwrap();
+    let sigma = value.get("sigma").expect("Failed to get alpha").to_string().parse::<f32>().unwrap();
     let final_color : ColorRgbtuple =  {
         let nums: Vec<u8> = final_color
             .trim_matches(|c| c == '[' || c == ']')
@@ -52,7 +52,7 @@ async fn main() {
             if prev.len() == bars.len() {
                 prev.iter()
                     .zip(bars.iter())
-                    .map(|(old, new)| old * (1.0 - alpha) + new * alpha)
+                    .map(|(old, new)| old * (1.0 - sigma) + new * sigma)
                     .collect::<Vec<f32>>()
             } else {
                 (*bars).clone()

@@ -15,6 +15,7 @@ type ScreenSize = (f32 , f32);
 struct Config {
     fft_size: usize,
     alpha: f32,
+    sigma : f32,
     max_magnitude: f32,
     noise_profile_time: f32,
     f_min: f32,
@@ -29,6 +30,7 @@ impl Default for Config {
         Config {
             fft_size: 1024,
             alpha: 0.05,
+            sigma : 0.2,
             max_magnitude: 20.0,
             noise_profile_time: 1.0,
             f_min: 100.0,
@@ -57,6 +59,8 @@ fft_size = {fft_size}
 # alpha: Temporal smoothing factor for magnitudes (0.0 = no smoothing, 1.0 = max smoothing)
 alpha = {alpha}
 
+#sigma : Graphical Smoothing factor
+sigma = {sigma}
 # max_magnitude: Controls scaling of bar length in the terminal
 max_magnitude = {max_magnitude}
 
@@ -74,6 +78,7 @@ final_color = [{r3}, {g3}, {b3}]
 "#,
             fft_size = default_config.fft_size,
             alpha = default_config.alpha,
+            sigma = default_config.sigma,
             max_magnitude = default_config.max_magnitude,
             noise_profile_time = default_config.noise_profile_time,
             f_min = default_config.f_min,
@@ -176,6 +181,8 @@ pub fn start_audio_thread(shared_bars: Arc<Mutex<Arc<Vec<f32>>>>, s : Arc<Mutex<
         let mut planner = rustfft::FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(config.fft_size);
 
+        let mut smoothed_mags = vec![0.0 ;config.fft_size / 2];
+
         let stream = device.build_input_stream(
             &config_in.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
@@ -208,13 +215,15 @@ pub fn start_audio_thread(shared_bars: Arc<Mutex<Arc<Vec<f32>>>>, s : Arc<Mutex<
                         }
                     } else {
 
-                        let mags : Vec<f32> = mags.iter().enumerate().map(|(i , elem)| (elem - noise_profile[i]).max(0.0)).collect();
-
+                        for (i , &mag) in mags.iter().enumerate() {
+                            let clean_mag= mag - noise_profile[i];
+                            smoothed_mags[i] = (config.alpha)*clean_mag + (1.0 - config.alpha)*smoothed_mags[i];
+                        }
                         let size = {
                             let guard = s.lock().unwrap();
                             *guard
                         };
-                        let bars = print_horizontal_spectrum(size, &mags, &config);
+                        let bars = print_horizontal_spectrum(size, &smoothed_mags, &config);
                         // share bars with GUI
                         if let Ok(mut shared) = shared_bars.lock() {
                             *shared = Arc::new(bars);
