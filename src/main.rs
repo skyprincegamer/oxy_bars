@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::{fs, thread};
+use std::time::Duration;
 use bar_gen::ColorRgbtuple;
 mod bar_gen;
 
@@ -18,12 +19,13 @@ async fn main() {
     thread::spawn(move|| {
         bar_gen::start_audio_thread(bars_clone, shared_size.clone() , colors_clone);
     });
+    thread::sleep(Duration::from_secs(2));
     let content = fs::read_to_string("config.toml").expect("Failed to read file");
 
     // Parse into toml::Value
     let value: toml::Value = toml::from_str(&content).expect("Invalid TOML");
 
-    let final_color  = value.get("final_color").expect("Failed to get final_color").to_string();
+    let final_color  = value.get("color_top").expect("Failed to get final_color").to_string();
     let sigma = value.get("sigma").expect("Failed to get alpha").to_string().parse::<f32>().unwrap();
     let final_color : ColorRgbtuple =  {
         let nums: Vec<u8> = final_color

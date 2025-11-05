@@ -20,24 +20,24 @@ struct Config {
     noise_profile_time: f32,
     f_min: f32,
     f_max: f32,
-    color_top : ColorRgbtuple,
-    color_bottom : ColorRgbtuple,
-    final_color: ColorRgbtuple,
+    color_start : ColorRgbtuple,
+    color_end : ColorRgbtuple,
+    color_top: ColorRgbtuple,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
-            fft_size: 1024,
-            alpha: 0.05,
-            sigma : 0.2,
+            fft_size: 2048,
+            alpha: 0.1,
+            sigma : 0.4,
             max_magnitude: 20.0,
             noise_profile_time: 1.0,
             f_min: 100.0,
             f_max: 10_000.0,
-            color_top : (48, 33, 147),
-            color_bottom : (147, 33, 143),
-            final_color : (255, 2 ,127)
+            color_start : (191, 64, 191),
+            color_end : (119, 7, 55),
+            color_top : (1, 2 ,127)
         }
     }
 }
@@ -53,10 +53,10 @@ fn load_or_create_config(path: &str) -> Config {
         // Manually create TOML with comments
         let toml_str = format!(
             r#"# Spectrum Analyzer Configuration
-# fft_size: Number of samples per FFT (higher = better frequency resolution, slower refresh)
+# fft_size: Number of samples per FFT
 fft_size = {fft_size}
 
-# alpha: Temporal smoothing factor for magnitudes (0.0 = no smoothing, 1.0 = max smoothing)
+# alpha: Temporal smoothing factor for magnitudes
 alpha = {alpha}
 
 #sigma : Graphical Smoothing factor
@@ -71,10 +71,10 @@ noise_profile_time = {noise_profile_time}
 f_min = {f_min}
 f_max = {f_max}
 
-# color_top and color_bottom: RGB tuples for gradient
-color_top = [{r1}, {g1}, {b1}]
-color_bottom = [{r2}, {g2}, {b2}]
-final_color = [{r3}, {g3}, {b3}]
+# color_start and color_end: RGB tuples for gradient
+color_start = [{r1}, {g1}, {b1}]
+color_end = [{r2}, {g2}, {b2}]
+color_top = [{r3}, {g3}, {b3}]
 "#,
             fft_size = default_config.fft_size,
             alpha = default_config.alpha,
@@ -83,15 +83,15 @@ final_color = [{r3}, {g3}, {b3}]
             noise_profile_time = default_config.noise_profile_time,
             f_min = default_config.f_min,
             f_max = default_config.f_max,
-            r1 = default_config.color_top.0,
-            g1 = default_config.color_top.1,
-            b1 = default_config.color_top.2,
-            r2 = default_config.color_bottom.0,
-            g2 = default_config.color_bottom.1,
-            b2 = default_config.color_bottom.2,
-            r3 = default_config.final_color.0,
-            g3 = default_config.final_color.1,
-            b3 = default_config.final_color.2,
+            r1 = default_config.color_start.0,
+            g1 = default_config.color_start.1,
+            b1 = default_config.color_start.2,
+            r2 = default_config.color_end.0,
+            g2 = default_config.color_end.1,
+            b2 = default_config.color_end.2,
+            r3 = default_config.color_top.0,
+            g3 = default_config.color_top.1,
+            b3 = default_config.color_top.2,
         );
 
         fs::write(path, toml_str).expect("Failed to write default config with comments");
@@ -104,7 +104,7 @@ final_color = [{r3}, {g3}, {b3}]
 
 
 fn spatial_smooth_bins(bar_lengths: &mut Vec<f32>) {
-    let sav = SavGolInput { data: bar_lengths, window_length: 7, poly_order: 2, derivative: 0 };
+    let sav = SavGolInput { data: bar_lengths, window_length: 11, poly_order: 2, derivative: 0 };
     *bar_lengths = savgol_filter(&sav).unwrap().iter().map(|&x| x as f32).collect()
 }
 fn print_horizontal_spectrum(s: ScreenSize , magnitudes: &[f32], config: &Config) -> Vec<f32>{
@@ -136,7 +136,7 @@ fn print_horizontal_spectrum(s: ScreenSize , magnitudes: &[f32], config: &Config
         *b = *b * scale;
     }
     spatial_smooth_bins(&mut bars);
-    bars.into_iter().take(num_bars/2).rev().collect()
+    bars.into_iter().take(num_bars/2).collect()
 }
 
  pub(crate) fn get_rgb_tuple(i: usize, color_start: ColorRgbtuple, color_end: ColorRgbtuple, max: usize) -> ColorRgbtuple {
@@ -148,7 +148,7 @@ fn print_horizontal_spectrum(s: ScreenSize , magnitudes: &[f32], config: &Config
 }
 
 fn get_shared_colors(len : usize , config: &Config) -> Vec<ColorRgbtuple> {
-    (0..len).map(|index| get_rgb_tuple(index , config.color_top , config.color_bottom , len)).collect()
+    (0..len).map(|index| get_rgb_tuple(index , config.color_start , config.color_end, len)).collect()
 }
 
 use std::sync::{Arc, Mutex};
