@@ -13,5 +13,5 @@ cargo run
  ENJOY!
  
 > [!WARNING]
-> Confirmed to work Fedora Linux 42. It should work for other Linux distros
-> . May or may not work on other platforms.
+> Guranteed to work on Fedora Linux 42. It should work for other Linux distros as well
+> . May or may not work on other operating systems.

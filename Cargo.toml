@@ -1,13 +1,6 @@
 [package]
 name = "visualizer"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2024"
 
 [dependencies]
-cpal = "0.16.0"
-rustfft = "6.4.0"
-windowfunctions = "0.1.1"
-toml = "0.9.8"
-serde = { version = "1.0.226", features = ["derive"] }
-savgol-rs = "0.1.0"
-macroquad = "0.4.14"
