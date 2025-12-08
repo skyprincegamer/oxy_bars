@@ -1,39 +1,52 @@
 use audio_recorder_rs::Recorder;
-use macroquad::color::{BLACK, GREEN};
-use macroquad::shapes::draw_rectangle;
-use macroquad::window::{clear_background};
+use macroquad::color::{BLACK, GREEN, RED, WHITE};
+use macroquad::shapes::draw_line;
+use macroquad::window::next_frame;
+use macroquad::window::{clear_background, screen_height, screen_width};
 use std::collections::VecDeque;
+use std::fs::OpenOptions;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use macroquad::miniquad::window::set_window_size;
-use macroquad::window::next_frame;
+use macroquad::camera::{set_camera, set_default_camera};
+use macroquad::math::Vec2;
+use macroquad::prelude::{draw_texture, Camera2D};
+use macroquad::texture::{render_target, RenderTarget, Texture2D};
 
 #[macroquad::main("Texture")]
 async fn main() {
     let mut recorder = Recorder::new();
     let receiver = recorder.start(true).expect("Failed to start recording");
-    let screen_width = 1024;
-    let screen_height = 1024;
     let samples = Arc::new(Mutex::new(VecDeque::new()));
+    let samples_len = Arc::new(Mutex::new(0usize));
+    let samples_len_clone = samples_len.clone();
     let samples_clone = samples.clone();
     thread::spawn(move || {
         while let Ok(d) = receiver.recv() {
+            let mut deq = samples_clone.lock().unwrap();
             for sample in d {
-                samples_clone.lock().unwrap().push_back(sample);
+                deq.push_back(sample);
+                *samples_len_clone.lock().unwrap() += 1;
             }
         }
     });
-    clear_background(BLACK);
-    set_window_size(screen_width, screen_height);
-    loop{
-        if samples.lock().unwrap().len() > screen_width as usize {
-            for (index, sample) in samples.lock().unwrap().drain(..screen_width as usize).enumerate() {
-                draw_rectangle(index as f32, (screen_width as f32 / 2.0) - (sample * (screen_width as f32 / 2.0)), 10., 10., GREEN);
+
+    loop {
+        clear_background(WHITE);
+        let mid = screen_height()/2.0;
+        if *samples_len.lock().unwrap() > screen_width() as usize {
+            let mut drawn: Vec<f32> = vec![0.; screen_width() as usize];
+            {
+                let mut locked = samples.lock().unwrap();
+                for x in drawn.iter_mut() {
+                    *x = (*locked).pop_back().unwrap();
+                }
+                *samples_len.lock().unwrap() = 0;
             }
-            println!("check macro if")
-        }
-        else {
-            continue;
+
+            for i in 0..drawn.len()-1 {
+                let iF = i as f32;
+                draw_line(iF, mid - drawn[i]*mid, iF+1., mid - drawn[i+1]*mid, 2., GREEN);
+            }
         }
         next_frame().await;
     }
