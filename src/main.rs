@@ -1,17 +1,14 @@
 use audio_recorder_rs::Recorder;
-use macroquad::color::{BLACK, GREEN, RED, WHITE};
+use macroquad::color::{GREEN, WHITE};
 use macroquad::shapes::draw_line;
 use macroquad::window::next_frame;
 use macroquad::window::{clear_background, screen_height, screen_width};
 use std::collections::VecDeque;
-use std::fs::OpenOptions;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use macroquad::camera::{set_camera, set_default_camera};
-use macroquad::math::Vec2;
-use macroquad::prelude::{draw_texture, Camera2D};
-use macroquad::texture::{render_target, RenderTarget, Texture2D};
 
+const ALPHA: f32 = 0.1;
+const VOLUME_SCALE: f32 = 16.0;
 #[macroquad::main("Texture")]
 async fn main() {
     let mut recorder = Recorder::new();
@@ -22,33 +19,47 @@ async fn main() {
     let samples_clone = samples.clone();
     thread::spawn(move || {
         while let Ok(d) = receiver.recv() {
-            let mut deq = samples_clone.lock().unwrap();
             for sample in d {
-                deq.push_back(sample);
+                samples_clone.lock().unwrap().push_back(sample);
                 *samples_len_clone.lock().unwrap() += 1;
             }
         }
     });
-
+    let mut drawn_prev = vec![0.; screen_width() as usize];
     loop {
+        if drawn_prev.len()  != screen_width() as usize {
+            drawn_prev = vec![0.; screen_width() as usize];
+        }
         clear_background(WHITE);
         let mid = screen_height()/2.0;
-        if *samples_len.lock().unwrap() > screen_width() as usize {
+        if *samples_len.lock().unwrap() > (screen_width()*2.) as usize {
             let mut drawn: Vec<f32> = vec![0.; screen_width() as usize];
             {
                 let mut locked = samples.lock().unwrap();
                 for x in drawn.iter_mut() {
-                    *x = (*locked).pop_back().unwrap();
+                    *x = ((*locked).pop_back().unwrap() * VOLUME_SCALE).min(1.0).max(-1.0);
                 }
-                *samples_len.lock().unwrap() = 0;
+                *samples_len.lock().unwrap() = locked.len();
             }
-
-            for i in 0..drawn.len()-1 {
-                let iF = i as f32;
-                draw_line(iF, mid - drawn[i]*mid, iF+1., mid - drawn[i+1]*mid, 2., GREEN);
+            for (index, x) in drawn.iter_mut().enumerate() {
+                *x = (drawn_prev[index] * (1.- ALPHA) + *x  * ALPHA);
             }
+            draw_lines(&drawn , mid);
+            for (index, x) in drawn.iter().enumerate() {
+                drawn_prev[index] = *x;
+            }
+        }
+        else{
+            draw_lines(&drawn_prev, mid);
         }
         next_frame().await;
     }
     recorder.stop();
+}
+
+fn draw_lines(drawn_prev: &Vec<f32>, mid: f32) {
+    for i in 0..drawn_prev.len() - 1 {
+        let i_f = i as f32;
+        draw_line(i_f, mid - drawn_prev[i] * mid, i_f + 1., mid - drawn_prev[i + 1] * mid, 2., GREEN);
+    }
 }
