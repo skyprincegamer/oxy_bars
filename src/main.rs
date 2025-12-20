@@ -1,75 +1,127 @@
 use audio_recorder_rs::Recorder;
-use macroquad::color::{GREEN, RED, WHITE};
+use macroquad::color::WHITE;
 use macroquad::shapes::{draw_line, draw_rectangle};
 use macroquad::window::next_frame;
 use macroquad::window::{clear_background, screen_height, screen_width};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
+use macroquad::input::is_quit_requested;
+use spectrum_analyzer::{samples_fft_to_spectrum, Frequency, FrequencyLimit, FrequencyValue};
+use spectrum_analyzer::windows::hann_window;
+use spectrum_analyzer::scaling::divide_by_N_sqrt;
 
-
-const ALPHA: f32 = 0.5;
-const VOLUME_SCALE: f32 = 2.;
+const SAMPLE_TIME :f64 = 1. / 44100.;
+const FFT_SIZE : usize = 2048;
 #[macroquad::main("Texture")]
 async fn main() {
     let mut recorder = Recorder::new();
     let receiver = recorder.start(true).expect("Failed to start recording");
     let samples = Arc::new(Mutex::new(VecDeque::new()));
-    let samples_len = Arc::new(Mutex::new(0usize));
-    let samples_len_clone = samples_len.clone();
-    let samples_clone = samples.clone();
+    let samples_clone_fft = samples.clone();
     thread::spawn(move || {
         while let Ok(d) = receiver.recv() {
             for sample in d {
-                samples_clone.lock().unwrap().push_back(sample);
-                *samples_len_clone.lock().unwrap() += 1;
+                samples.lock().unwrap().push_back(sample);
+            }
+        }
+    });
+    let spectrum_mutex :Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(vec![0. ; 44100/2]));
+    let spectrum_mutex_clone = spectrum_mutex.clone();
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_micros(SAMPLE_TIME as u64));
+        let mut input = vec![0.; FFT_SIZE];
+        if samples_clone_fft.lock().unwrap().len() > (FFT_SIZE*2) {
+            {
+                let mut locked = samples_clone_fft.lock().unwrap();
+
+                for i in 0..FFT_SIZE {
+                    input[i] = locked.pop_back().unwrap();
+                }
+            }
+            input.reverse();
+            let windowed_input = hann_window(&input);
+            let spectrum = samples_fft_to_spectrum(&windowed_input,
+                44100, //sampling rate
+               FrequencyLimit::All,
+               Some(&divide_by_N_sqrt)
+            ).unwrap();
+            {
+                let mut locked = spectrum_mutex_clone.lock().unwrap();
+                for &(freq, freq_val) in spectrum.data().iter() {
+                    (*locked)[(freq.val() as usize).min(44100/2 - 1)] = freq_val.val() ;
+                }
+
             }
         }
     });
     let mut drawn_prev = vec![0.; screen_width() as usize];
     loop {
-        if drawn_prev.len()  != screen_width() as usize {
+
+        clear_background(WHITE);
+        if(drawn_prev.len() != screen_width() as usize) {
             drawn_prev = vec![0.; screen_width() as usize];
         }
-        clear_background(WHITE);
-        let mid = screen_height()/2.0;
-        if *samples_len.lock().unwrap() > (screen_width()*2.) as usize {
-            let mut drawn: Vec<f32> = vec![0.; screen_width() as usize];
-            {
-                let mut locked = samples.lock().unwrap();
-                for x in drawn.iter_mut() {
-                    *x = ((*locked).pop_back().unwrap() * VOLUME_SCALE).min(1.0).max(-1.0);
+        let locked = spectrum_mutex.lock().unwrap().clone();
+        let drawn = interpolate_the_bars
+                                (scale_the_bars(
+                                average_the_bars(locked , screen_width() as usize)) , &drawn_prev, 0.5);
+        drawn_prev = drawn.clone();
+        draw_rectangles(drawn);
+        match macroquad::input::get_char_pressed(){
+            None => {}
+            Some(key) => {
+                if key == char::from_u32(27).unwrap(){
+                    break;
                 }
-                *samples_len.lock().unwrap() = locked.len();
             }
-            for (index, x) in drawn.iter_mut().enumerate() {
-                *x = drawn_prev[index] * (1.- ALPHA) + *x  * ALPHA;
-            }
-
-            for (index, x) in drawn.iter().enumerate() {
-                drawn_prev[index] = *x;
-            }
-            draw_lines(&drawn, mid);
         }
-        else{
-            draw_lines(&drawn_prev, mid);
+        if is_quit_requested(){
+            break;
         }
         next_frame().await;
     }
     recorder.stop();
 }
 
-fn draw_lines(drawn_prev: &Vec<f32>, mid: f32) {
-    for i in 0..drawn_prev.len() - 1 {
-        let i_f = i as f32;
-        draw_line(i_f, mid - drawn_prev[i] * mid, i_f + 1., mid - drawn_prev[i + 1] * mid, 2., macroquad::color::RED);
+
+fn average_the_bars(bars: Vec<f32> , target_size : usize) -> Vec<f32>{
+
+    let chunk_size = bars.len() / target_size;
+
+    if target_size > bars.len() || chunk_size <= 1 {
+        return bars;
     }
+
+    let mut output : Vec<f32> = vec![0.; target_size];
+    let bars : Vec<f32> = bars.iter().take(target_size*chunk_size).copied().collect();
+    for i in 0..bars.len() {
+        output[i/chunk_size] += bars[i];
+    }
+    for i in 0..output.len(){
+        output[i] /= chunk_size as f32;
+    }
+    output
 }
 
-fn draw_rectangles(bars : &Vec<f32>){
-    for i in 0..bars.len(){
+fn scale_the_bars(bars: Vec<f32>) -> Vec<f32>{
+    let mut output = vec![0.; bars.len()];
+    let ordered :Vec<FrequencyValue> = bars.iter().map(|x|FrequencyValue::from(*x)).collect();
+    let scale = screen_height()/(ordered.iter().max().unwrap().clone().val());
+    for i in 0..output.len(){
+        output[i] = bars[i] * scale;
+    }
+    output
+}
+
+fn interpolate_the_bars(this_bars : Vec<f32> , other : &Vec<f32> , alpha:f32) -> Vec<f32>{
+    this_bars.iter().enumerate().map(|(i,&val)|{(val * alpha) + other[i] * (1.-alpha)}).collect()
+}
+fn draw_rectangles(bars : Vec<f32>){
+    for i in 0..bars.len() {
         let i_f = i as f32;
-        let rec_width = screen_width()/bars.len() as f32;
-        draw_rectangle(i_f*rec_width ,screen_height()- bars[i] , rec_width , bars[i] , RED );
+        let height = bars[i].min(screen_height());
+        draw_rectangle(i_f, screen_height() - height, 1. , height , macroquad::color::BLACK );
     }
 }

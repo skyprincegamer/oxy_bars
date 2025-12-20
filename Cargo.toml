@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 audio-recorder-rs = "0.1.0"
 macroquad = "0.4.14"
-
+spectrum-analyzer = "1.7.0"
