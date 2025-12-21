@@ -1,29 +1,46 @@
+mod utils;
+
 use audio_recorder_rs::Recorder;
 use macroquad::color::WHITE;
 use macroquad::input::is_quit_requested;
-use macroquad::shapes::draw_rectangle;
 use macroquad::window::next_frame;
-use macroquad::window::{clear_background, screen_height, screen_width};
+use macroquad::window::{clear_background, screen_width};
 use spectrum_analyzer::windows::hann_window;
-use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit};
+use spectrum_analyzer::{samples_fft_to_spectrum, Frequency, FrequencyLimit};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-const SAMPLE_TIME :f64 = 1. / 44100.;
+const SAMPLE_TIME :f64 = 1_000_000. / 44100.;
 const FFT_SIZE : usize = 2048;
 
-const GLOBAL_SCALE : f32 = 1.;
+const GLOBAL_SCALE : f32 = 5.;
 const ALPHA :f32 = 0.5;
-#[macroquad::main("Texture")]
+const COLOR_START : (f32, f32, f32) = (1., 0.5, 0.);
+const COLOR_END : (f32, f32, f32) = (0.5, 1.0, 0.);
+const COLOR_FINAL : (f32, f32, f32) = (0.5, 0.5, 1.0);
+
+#[macroquad::main("Oxy Bars")]
 async fn main() {
     let mut recorder = Recorder::new();
     let receiver = recorder.start(true).expect("Failed to start recording");
     let samples = Arc::new(Mutex::new(VecDeque::new()));
     let samples_clone_fft = samples.clone();
+    let noise_profile = Arc::new(Mutex::new(Vec::<f32>::with_capacity(FFT_SIZE)));
+    let noise_profile_clone = noise_profile.clone();
+    let mut noise_profiling_done = false;
     thread::spawn(move || {
         while let Ok(d) = receiver.recv() {
+            while !noise_profiling_done && noise_profile.lock().unwrap().len() < FFT_SIZE  {
+                let mut locked = noise_profile.lock().unwrap();
+                for sample in d.clone() {
+                    if locked.len() < FFT_SIZE {
+                        locked.push(sample);
+                    }
+                }
+            }
+            noise_profiling_done = true;
             for sample in d {
                 samples.lock().unwrap().push_back(sample);
             }
@@ -37,21 +54,40 @@ async fn main() {
         if samples_clone_fft.lock().unwrap().len() > (FFT_SIZE+2) {
             {
                 let mut locked = samples_clone_fft.lock().unwrap();
-
                 for i in 0..FFT_SIZE {
-                    input[i] = locked.pop_front().unwrap();
+                    input[i] = locked.pop_front().unwrap() ;
                 }
             }
+            let mut spectrum_noise = None;
+            if noise_profile_clone.lock().unwrap().len() >= (FFT_SIZE) {
+                let locked_noise = noise_profile_clone.lock().unwrap();
+                let windowed_noise = hann_window(&locked_noise);
+                spectrum_noise = Some(samples_fft_to_spectrum(&windowed_noise,
+                                                             44100, //sampling rate
+                                                             FrequencyLimit::All, None).unwrap());
+            }
+            else{
+                continue;
+            }
+
             let windowed_input = hann_window(&input);
             let spectrum = samples_fft_to_spectrum(&windowed_input,
                 44100, //sampling rate
                FrequencyLimit::All, None).unwrap();
+
             {
                 let mut locked = spectrum_mutex_clone.lock().unwrap();
-                for &(freq, freq_val) in spectrum.data().iter() {
-                    (*locked)[(freq.val() as usize).min(44100/2 - 1)] = freq_val.val() ;
+                let indexer = |x:Frequency| (x.val() as usize).min(44100/2 - 1);
+                let noise_iter = spectrum_noise.as_ref().unwrap().data().iter();
+                for (&(freq, freq_val) , &(noise_freq , noise_val)) in spectrum.data().iter().zip(noise_iter) {
+                    if indexer(noise_freq) == indexer(freq){
+                        (*locked)[indexer(freq)] = (freq_val.val() - noise_val.val()).max(0.0);
+                    }
+                    else{
+                        (*locked)[indexer(freq)] = freq_val.val();
+                    }
+                    
                 }
-
             }
         }
     });
@@ -63,11 +99,11 @@ async fn main() {
             drawn_prev = vec![0.; screen_width() as usize];
         }
         let locked = spectrum_mutex.lock().unwrap().clone();
-        let drawn = interpolate_the_bars
-                                (scale_the_bars(
-                                average_the_bars(locked , screen_width() as usize)) , &drawn_prev, ALPHA);
+        let drawn = utils::interpolate_the_bars
+                                (utils::scale_the_bars(
+                                utils::average_the_bars(locked , screen_width() as usize)) , &drawn_prev, ALPHA);
         drawn_prev = drawn.clone();
-        draw_rectangles(drawn);
+        utils::draw_rectangles(drawn);
         match macroquad::input::get_char_pressed(){
             None => {}
             Some(key) => {
@@ -82,46 +118,4 @@ async fn main() {
         next_frame().await;
     }
     recorder.stop();
-}
-
-
-fn average_the_bars(bars: Vec<f32> , target_size : usize) -> Vec<f32>{
-
-    let chunk_size = bars.len() / target_size;
-
-    if target_size > bars.len() || chunk_size <= 1 || target_size == 0 {
-        return bars;
-    }
-
-    let mut output : Vec<f32> = vec![0.; target_size];
-    let bars : Vec<f32> = bars.iter().take(target_size*chunk_size).copied().collect();
-    for i in 0..bars.len() {
-        output[i/chunk_size] += bars[i];
-    }
-    for i in 0..output.len(){
-        output[i] /= chunk_size as f32;
-    }
-    output
-}
-
-fn scale_the_bars(bars: Vec<f32>) -> Vec<f32>{
-    let mut output = vec![0.; bars.len()];
-    let scale = GLOBAL_SCALE * screen_width();
-    for i in 0..output.len(){
-        output[i] = bars[i] * scale;
-    }
-    output
-}
-
-fn interpolate_the_bars(this_bars : Vec<f32> , other : &Vec<f32> , alpha:f32) -> Vec<f32>{
-    this_bars.iter().enumerate().map(|(i,&val)|{(val * alpha) + other[i] * (1.-alpha)}).collect()
-}
-fn draw_rectangles(bars : Vec<f32>){
-    for i in 0..bars.len() {
-        let i_f = i as f32;
-        let height = bars[i].min(screen_height());
-        let the_func = |x : f32| x / screen_height();
-        let the_color = macroquad::color::Color::new(the_func(height), the_func(height), the_func(height), 1.);
-        draw_rectangle(i_f, screen_height() - height, 1. , height , the_color );
-    }
 }
