@@ -4,6 +4,8 @@ version = "2.0.0"
 edition = "2024"
 
 [dependencies]
-audio-recorder-rs = "0.1.0"
 macroquad = "0.4.14"
-spectrum-analyzer = "1.7.0"
+rustfft = "6.4.1"
+cpal = "0.17.3"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2+spec-1.1.0"
