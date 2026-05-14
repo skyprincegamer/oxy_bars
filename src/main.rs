@@ -3,7 +3,7 @@ mod utils;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use macroquad::color::BLACK;
 use macroquad::input::is_quit_requested;
-use macroquad::window::clear_background;
+use macroquad::window::{clear_background, Conf};
 use macroquad::window::next_frame;
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex;
@@ -25,7 +25,8 @@ struct Config {
     color_start: Vec<f32>,
     color_end: Vec<f32>,
     color_final: Vec<f32>,
-    scale : u32
+    scale : u32,
+    falling_factor:u32
 }
 
 impl Default for Config {
@@ -37,11 +38,18 @@ impl Default for Config {
             color_end: vec![0.5, 1.0, 0.0],
             color_final: vec![0.5, 0.5, 1.0],
             scale :2,
+            falling_factor: 10
         }
     }
 }
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Oxy Bars".to_owned(),
+        ..Default::default()
+    }
+}
 
-#[macroquad::main("Oxy Bars")]
+#[macroquad::main(window_conf)]
 async fn main() {
     let mut config_str = String::new();
     let config_file = File::open("config.toml");
@@ -153,7 +161,7 @@ async fn main() {
                 //windowing for reducing spectral leakage
 
                 let length = config.fft;
-                let window_type = windowfunctions::WindowFunction::Hamming;
+                let window_type = windowfunctions::WindowFunction::BlackmanNuttall;
                 let symmetry = windowfunctions::Symmetry::Symmetric;
 
                 let window_iter = window::<f32>(length, window_type, symmetry);
@@ -173,7 +181,7 @@ async fn main() {
             }
         }
     });
-    let disp_w = config.fft / 2 - (config.fft/100) * 2;
+    let disp_w = config.fft/2 - (config.fft/100) * 2;
     let mut drawn_prev = vec![0.; disp_w];
     loop {
         clear_background(BLACK);
@@ -196,3 +204,4 @@ async fn main() {
         next_frame().await;
     }
 }
+

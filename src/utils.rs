@@ -11,8 +11,13 @@ pub fn scale_the_bars(bars: Vec<f32> , scale : u32) -> Vec<f32>{
     output
 }
 
-pub fn interpolate_the_bars(this_bars : &Vec<f32> , other : &Vec<f32> , alpha:f32) -> Vec<f32>{
-    this_bars.iter().enumerate().map(|(i,&val)|{(val * alpha) + other[i] * (1.-alpha)}).collect()
+pub fn interpolate_the_bars(this_bars : &Vec<f32> , other : &Vec<f32> , alpha:f32,falling_factor : u32) -> Vec<f32>{
+    let alpha_attack = alpha*falling_factor as f32;
+    let alpha_fall = alpha*(1.0/(falling_factor as f32));
+    this_bars.iter().enumerate().map(|(i,&val)|
+        if val > other[i]{(val * alpha_attack) + other[i] * (1.-alpha_attack)}
+        else {(val * alpha_fall) + other[i] * (1.-alpha_fall)}
+    ).collect()
 }
 pub fn draw_rectangles(spec: &Vec<f32> ,prev : &Vec<f32>, config: &Config) -> Vec<f32>{
     if spec.len() <= config.fft/2 - 1{
@@ -20,7 +25,7 @@ pub fn draw_rectangles(spec: &Vec<f32> ,prev : &Vec<f32>, config: &Config) -> Ve
     }
     else {
         let BUFFER = config.fft/100;
-        let bars = interpolate_the_bars(&scale_the_bars(spec.into_iter().cloned().skip(BUFFER).take(config.fft / 2 - BUFFER*2).collect(), config.scale), prev, config.alpha);
+        let bars = interpolate_the_bars(&scale_the_bars(spec.into_iter().cloned().skip(BUFFER).take(config.fft/2 - BUFFER*2).collect(), config.scale), prev, config.alpha,config.falling_factor);
 
         let n = bars.len();
         let bar_width = screen_width() / n as f32;
