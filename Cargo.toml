@@ -9,3 +9,4 @@ rustfft = "6.4.1"
 cpal = "0.17.3"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.2+spec-1.1.0"
+windowfunctions = "0.1.1"

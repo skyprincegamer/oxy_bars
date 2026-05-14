@@ -16,6 +16,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use windowfunctions::window;
 
 #[derive(Deserialize, Serialize, Debug)]
 struct Config {
@@ -136,7 +137,7 @@ async fn main() {
                 let mut locked = noise_profile_clone.lock().unwrap();
                 buffer = locked.iter().map(|&x| Complex { re: x, im: 0. }).collect();
                 fft.process(&mut buffer);
-                noise_noise = buffer.iter().map(|&x| x.re).collect();
+                noise_noise = buffer.iter().map(|&x| x.norm()).collect();
                 noise_spectrum_done.store(true, SeqCst);
             } else if !noise_recording_done_clone.load(SeqCst) {
                 continue;
@@ -145,12 +146,25 @@ async fn main() {
                 if locked.len() < config.fft + 2 {
                     continue;
                 }
+                let mut raw_buffer = vec![0.0;config.fft];
                 for i in 0..config.fft {
-                    buffer[i] = Complex {
-                        re: locked.pop_front().unwrap() ,
-                        im: 0.,
-                    };
+                    raw_buffer[i] = locked.pop_front().unwrap();
                 }
+                //windowing for reducing spectral leakage
+
+                let length = config.fft;
+                let window_type = windowfunctions::WindowFunction::Hamming;
+                let symmetry = windowfunctions::Symmetry::Symmetric;
+
+                let window_iter = window::<f32>(length, window_type, symmetry);
+
+                let window_vec: Vec<f32> = window_iter.into_iter().collect();
+                for i in 0..config.fft{
+                    raw_buffer[i] *= window_vec[i];
+                }
+                buffer = raw_buffer.into_iter().map(|x| Complex { re: x, im: 0. }).collect();
+                // windowing done
+
                 fft.process(&mut buffer);
                 let mut locked = spectrum_mutex_clone.lock().unwrap();
                 for i in 0..config.fft{
