@@ -6,13 +6,9 @@ on:
       - '**' # Runs on every push
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-
+  build-windows:
+    name: Build on Windows
+    runs-on: "windows-latest"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,22 +16,28 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build
+        run: cargo build --release
+
+  build-linux:
+    name: Build on Linux
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libfuse2 pkg-config libasound2-dev libx11-dev libxi-dev libgl1-mesa-dev
           sudo wget -O /usr/local/bin/appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           sudo chmod +x /usr/local/bin/appimagetool
 
-      - name: Install cargo-appimage (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install cargo-appimage
         run: cargo install cargo-appimage
 
-      - name: Build AppImage (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build AppImage
         run: cargo appimage
-
-      - name: Build Windows .exe
-        if: matrix.os == 'windows-latest'
-        run: cargo build --release
