@@ -1,7 +1,9 @@
 name: Build latest commit
 
 on:
-  workflow_call: # this workflow will only be called by other workflows
+  push:
+    branches:
+      - '**' # Runs on every push
 
 jobs:
   build:
@@ -37,28 +39,3 @@ jobs:
       - name: Build Windows .exe
         if: matrix.os == 'windows-latest'
         run: cargo build --release
-
-      - name: Get app name
-        shell: bash
-        run: |
-          APP_NAME=$(cargo read-manifest | jq -r .name)
-          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
-
-      - name: Collect executables
-        shell: bash
-        run: |
-          mkdir -p executables
-
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            mv target/release/${{ env.APP_NAME }}.exe executables/${{ env.APP_NAME }}-windows.exe
-          else
-            APP_IMAGE_PATH=$(find target -name "*.AppImage" -type f | head -n 1)
-            mv "$APP_IMAGE_PATH" executables/${{ env.APP_NAME }}-linux.AppImage
-          fi
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: binaries-${{ matrix.os }}
-          path: executables/*
-          retention-days: 1
