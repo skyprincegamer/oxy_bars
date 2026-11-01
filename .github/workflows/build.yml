@@ -1,0 +1,63 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install appimagetool and FUSE (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libfuse2
+        sudo wget -O /usr/local/bin/appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        sudo chmod +x /usr/local/bin/appimagetool
+
+    - name: Install cargo-appimage (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo install cargo-appimage
+
+    - name: Build AppImage (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo appimage --release
+
+
+    - name: Build Windows binary
+      if: matrix.os == 'windows-latest'
+      run: cargo build --release
+
+
+    - name: Rename and stage binaries
+      shell: bash
+      run: |
+        mkdir -p release_assets
+        # REPLACE 'your_app_name' with your actual crate name from Cargo.toml
+        
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          mv target/release/your_app_name.exe release_assets/your_app_name-windows.exe
+        else
+          # cargo-appimage drops the finished file in the root directory
+          mv *.AppImage release_assets/your_app_name-linux.AppImage
+        fi
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: release_assets/*

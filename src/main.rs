@@ -70,7 +70,6 @@ async fn main() {
             erred = true
         }
     }
-    dbg!(erred);
     let config: Config;
     let config_res = toml::from_str(config_str.as_str());
     match config_res {
@@ -139,10 +138,10 @@ async fn main() {
         loop {
             thread::sleep(Duration::from_micros(22)); // 1/44100 s = 22 µs
 
-            let mut buffer = vec![Complex { re: 0.0, im: 0.0 }; config.fft];
+            let mut buffer : Vec<Complex<f32>>;
 
             if !noise_spectrum_done.load(SeqCst) && noise_recording_done_clone.load(SeqCst) {
-                let mut locked = noise_profile_clone.lock().unwrap();
+                let locked = noise_profile_clone.lock().unwrap();
                 buffer = locked.iter().map(|&x| Complex { re: x, im: 0. }).collect();
                 fft.process(&mut buffer);
                 noise_noise = buffer.iter().map(|&x| x.norm()).collect();
