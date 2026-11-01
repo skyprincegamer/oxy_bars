@@ -44,48 +44,55 @@ impl Default for Config {
 }
 fn window_conf() -> Conf {
     Conf {
-        window_title: "Oxy Bars".to_owned(),
+        window_title: String::from("Oxy Bars"),
         ..Default::default()
     }
 }
 
-#[macroquad::main(window_conf)]
-async fn main() {
-    let mut config_str = String::new();
-    let config_file = File::open("config.toml");
-    let mut erred = false;
+fn get_config_path() -> String {
+    let is_appimage = std::env::var("APPIMAGE").is_ok();
+
+    if is_appimage {
+        let home = std::env::var("HOME").expect("HOME environment variable not set");
+        let config_path = home + "/.config/oxy_bars/";
+        let _ = std::fs::create_dir_all(&config_path);
+        config_path + "config.toml"
+    } else {
+        String::from("config.toml")
+    }
+}
+fn find_config() -> Option<Config> {
+    let config_path = get_config_path();
+    let config_file = File::open(config_path);
     match config_file {
         Ok(mut file) => {
-            let res = file.read_to_string(&mut config_str);
-            match res {
-                Ok(_) => {}
-                Err(_) => {
-                    config_str = "".to_string();
-                    erred = true
-                }
+            let mut contents = String::new();
+            let res = file.read_to_string(&mut contents);
+            if res.is_err() {
+                None
+            }
+            else{
+                let res = toml::from_str::<Config>(&contents);
+                res.ok()
             }
         }
-        Err(_) => {
-            config_str = "".to_string();
-            erred = true
+        Err(_) => None
+    }
+}
+fn write_config() -> std::io::Result<()> {
+    let path = get_config_path();
+    let mut config_file = File::create(path)?;
+    let default = Config::default();
+    config_file.write_all(toml::to_string(&default).unwrap().as_bytes())
+}
+#[macroquad::main(window_conf)]
+async fn main() {
+    let config = find_config().unwrap_or_else(|| {
+        if write_config().is_err() {
+            panic!("Could not generate config file")
         }
-    }
-    let config: Config;
-    let config_res = toml::from_str(config_str.as_str());
-    match config_res {
-        Ok(x) => config = x,
-        Err(_) => {
-            erred = true;
-            config = Config::default()
-        }
-    }
-    dbg!(&config);
-    if erred {
-        let mut f = File::create("config.toml").unwrap();
-        f.write_all(toml::to_string(&config).unwrap().as_bytes())
-            .unwrap();
-        dbg!("file written!");
-    }
+        Config::default()
+    });
     let device = cpal::default_host()
         .default_input_device()
         .expect("NO MIC BRUH");
