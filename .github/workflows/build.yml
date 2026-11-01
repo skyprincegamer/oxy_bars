@@ -36,28 +36,32 @@ jobs:
 
     - name: Build AppImage (Linux)
       if: matrix.os == 'ubuntu-latest'
-      run: cargo appimage --release
+      run: cargo appimage
 
 
-    - name: Build Windows binary
+    - name: Build Windows .exe
       if: matrix.os == 'windows-latest'
       run: cargo build --release
 
 
-    - name: Rename and stage binaries
+    - name: Get app name
       shell: bash
       run: |
-        mkdir -p release_assets
-        # REPLACE 'your_app_name' with your actual crate name from Cargo.toml
-        
+        APP_NAME=$(cargo read-manifest | jq -r .name)
+        echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+
+    - name: Put executables in the release folder
+      shell: bash
+      run: |
+        mkdir -p executables
+
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          mv target/release/your_app_name.exe release_assets/your_app_name-windows.exe
+          mv target/release/${{ env.APP_NAME }}.exe executables/${{ env.APP_NAME }}-windows.exe
         else
-          # cargo-appimage drops the finished file in the root directory
-          mv *.AppImage release_assets/your_app_name-linux.AppImage
+          mv *.AppImage executables/${{ env.APP_NAME }}-linux.AppImage
         fi
 
     - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        files: release_assets/*
+        files: executables/*
