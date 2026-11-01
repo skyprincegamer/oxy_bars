@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install dependencies (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libfuse2 pkg-config libasound2-dev libx11-dev libxi-dev libgl1-mesa-dev
+        sudo wget -O /usr/local/bin/appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        sudo chmod +x /usr/local/bin/appimagetool
+
+    - name: Install cargo-appimage (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo install cargo-appimage
+
+    - name: Build AppImage (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo appimage
+
+
+    - name: Build Windows .exe
+      if: matrix.os == 'windows-latest'
+      run: cargo build --release
+
+
+    - name: Get app name
+      shell: bash
+      run: |
+        APP_NAME=$(cargo read-manifest | jq -r .name)
+        echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+
+    - name: Put executables in the release folder
+      shell: bash
+      run: |
+        mkdir -p executables
+        TAG="${{ github.ref_name }}"
+        TAG="${TAG#v}"
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          mv target/release/${{ env.APP_NAME }}.exe executables/${{ env.APP_NAME }}-${TAG}-windows.exe
+        else
+            APP_IMAGE_PATH=$(find target -name "*.AppImage" -type f | head -n 1)
+            mv "$APP_IMAGE_PATH" executables/${{ env.APP_NAME }}-${TAG}-linux.AppImage
+        fi
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: executables/*

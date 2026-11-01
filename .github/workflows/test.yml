@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - '**' # Runs on every push
+
+jobs:
+  compile-binaries:
+    uses: ./.github/workflows/build.yml
+
+  testing:
+    needs: compile-binaries
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Download built binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          merge-multiple: true
+          path: executables
+
+      - name: Run test
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            sudo apt-get update && sudo apt-get install -y xvfb
+            APPIMAGE=$(ls executables/*.AppImage | head -n 1)
+            chmod +x "$APPIMAGE"
+          
+            timeout 3 xvfb-run -a "$APPIMAGE" || if [ $? -ne 124 ]; then exit 1; fi
+          
+          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
+            APPEXE=$(ls executables/*.exe | head -n 1)
+            chmod +x "$APPEXE"
+          
+            timeout 3 "$APPEXE" || if [ $? -ne 124 ]; then exit 1; fi
+          fi
